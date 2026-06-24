@@ -1,0 +1,11 @@
+.git/
+.venv/
+.pytest_cache/
+.pycache_check/
+__pycache__/
+*.py[cod]
+
+data/
+notebooks/
+tests/
+airflow/logs/
