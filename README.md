@@ -1,16 +1,8 @@
 # Hourly Bike Sharing Demand Prediction
 
-This project predicts the number of bikes rented in a given hour using weather and calendar data.
+This project is built for the EPITA Data Science in Production practical work.
 
-The project is built for the EPITA Data Science in Production practical work. The main goal is not to build the most complex model, but to demonstrate a complete production-style ML workflow with:
-
-- FastAPI model serving
-- Streamlit prediction UI
-- PostgreSQL storage
-- Airflow ingestion and prediction DAGs
-- Great Expectations data validation
-- Docker Compose
-- CI with linting and tests
+The goal is to predict hourly bike rental demand from weather and calendar features, then expose the model through a production-style workflow with an API, webapp, database, Airflow jobs, data validation, Docker, and CI.
 
 ## Dataset
 
@@ -18,213 +10,76 @@ Dataset: UCI Bike Sharing Dataset
 
 Source: https://archive.ics.uci.edu/dataset/275/bike+sharing+dataset
 
-Main file used: `hour.csv`
+Main file planned for the project: `hour.csv`
 
 Target column: `cnt`
 
-## Why `hour.csv`
+We use `hour.csv` instead of `day.csv` because the hourly file has more rows and is better suited for the required ingestion workflow with small 10-row batch files.
 
-The dataset ZIP contains `day.csv`, `hour.csv`, and `Readme.txt`.
+## Planned Architecture
 
-This project uses `hour.csv` because it has one row per hour and enough rows for the required ingestion workflow. The Defense 1 instructions require splitting data into files of exactly 10 rows and running scheduled ingestion/prediction jobs. The daily file is too small and less useful for that demo.
+- FastAPI model service for predictions and prediction history
+- Streamlit webapp for manual and batch predictions
+- PostgreSQL database for predictions and ingestion statistics
+- Airflow DAG for data ingestion and validation
+- Airflow DAG for scheduled batch predictions
+- Great Expectations for data quality validation
+- Docker Compose for local orchestration
+- GitHub Actions for linting and tests
 
-## ML Problem
+## Branch Workflow
 
-Regression problem:
+The project follows the course Git workflow:
 
-> Predict hourly bike rental demand from weather, season, weekday, holiday, and time information.
+- `main`: stable branch used only for defenses
+- `develop`: integration branch
+- `feature/*`: feature branches created from `develop`
 
-## Columns
+Rules:
 
-Target:
+- Do not commit directly to `main` or `develop`.
+- Create feature branches from `develop`.
+- Open Pull Requests from feature branches into `develop`.
+- Squash merge feature branches when possible.
+- Delete finished feature branches after merge.
+- Merge `develop` into `main` only before the defense.
 
-- `cnt`: total bike rentals for the hour
+## Team Feature Split
 
-Model features:
+- `feature/api-database`: FastAPI service, SQLAlchemy models, prediction storage
+- `feature/streamlit-webapp`: Streamlit prediction UI and past predictions page
+- `feature/data-validation`: data splitting, corrupted data generation, Great Expectations validation
+- `feature/docker-airflow`: Docker Compose, Airflow ingestion DAG, Airflow prediction DAG
 
-- `season`
-- `yr`
-- `mnth`
-- `hr`
-- `holiday`
-- `weekday`
-- `workingday`
-- `weathersit`
-- `temp`
-- `atemp`
-- `hum`
-- `windspeed`
+## Local Setup
 
-Columns not used as model input:
-
-- `instant`: row identifier
-- `dteday`: date, kept for monitoring and file tracking when useful
-- `casual`: data leakage, because `casual + registered = cnt`
-- `registered`: data leakage, because `casual + registered = cnt`
-- `cnt`: target column
-
-## Current Status
-
-Step 1: project structure created.
-
-Step 2: dataset download script and baseline training script created.
-
-Baseline model:
-
-- Model: Hist Gradient Boosting Regressor
-- Rows: 17,379
-- MAE: around 24 rentals
-- RMSE: around 39 rentals
-- R2: around 0.952
-
-Next step: build the FastAPI `/health` and `/predict` endpoints.
-
-Step 3: FastAPI endpoints created and tested.
-
-Available API endpoints:
-
-- `GET /health`
-- `POST /predict`
-- `GET /past-predictions`
-
-Predictions are saved through SQLAlchemy. Set `DATABASE_URL` to use PostgreSQL. When `DATABASE_URL` is not set, the project uses a local SQLite database only for development.
-
-Next step: build the Streamlit UI with a prediction page and a past predictions page.
-
-Step 4: Streamlit UI created and verified.
-
-Run the API:
+Create a local environment:
 
 ```bash
-.venv/bin/uvicorn app.api.main:app --host 127.0.0.1 --port 8000
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-Run the Streamlit app:
+Create a local `.env` file from the example:
 
 ```bash
-API_BASE_URL=http://127.0.0.1:8000 .venv/bin/streamlit run app/streamlit_app/Prediction.py
+cp .env.example .env
 ```
 
-Step 5: data splitting script created.
+The project is intended to run with Docker Compose once the feature branches are merged.
 
-Generate ingestion files:
+## Defense 1 Scope
 
-```bash
-.venv/bin/python scripts/split_dataset.py data/raw/hour.csv data/raw_data 30
-```
+Defense 1 focuses on:
 
-Each generated file contains exactly 10 data rows.
+- Git workflow and CI
+- Docker
+- FastAPI model API
+- Streamlit webapp
+- PostgreSQL storage
+- Airflow ingestion and prediction jobs
+- Great Expectations validation
+- data splitting and data error generation
 
-Next step: build the data error generation script for Great Expectations demos.
-
-Step 6: data error generation script created.
-
-Generate a corrupted demo file:
-
-```bash
-.venv/bin/python scripts/generate_data_errors.py \
-  data/raw_data/batch_001.csv \
-  data/raw_data/demo_corrupted.csv \
-  --null-probability 0.3 \
-  --range-probability 0.3 \
-  --category-probability 0.3 \
-  --type-probability 0.3 \
-  --duplicate-probability 0.2 \
-  --inconsistency-probability 0.3 \
-  --outlier-probability 0.3 \
-  --drop-column
-```
-
-Implemented error types:
-
-- Null value in required column
-- Value outside valid range
-- Invalid categorical value
-- Missing required column
-- Wrong data type
-- Duplicate primary key
-- Cross-field inconsistency
-- Statistical outlier
-
-Next step: prepare Docker Compose with FastAPI, Streamlit, and PostgreSQL.
-
-Step 7: Docker Compose files created for the core services.
-
-Services:
-
-- `postgres`: PostgreSQL database
-- `api`: FastAPI model service
-- `streamlit`: Streamlit webapp
-
-Run with Docker:
-
-```bash
-docker compose up --build
-```
-
-Open:
-
-- FastAPI docs: http://127.0.0.1:8000/docs
-- Streamlit app: http://127.0.0.1:8501
-
-Note: Docker must be installed and running on the machine.
-
-Step 8: validation and ingestion pipeline created.
-
-Validate one file:
-
-```bash
-.venv/bin/python scripts/validate_data.py data/raw_data/demo_corrupted.csv
-```
-
-Ingest one random raw file:
-
-```bash
-.venv/bin/python scripts/ingest_one_file.py
-```
-
-The ingestion flow:
-
-- randomly selects one CSV from `data/raw_data`
-- validates it with Great Expectations
-- computes error statistics and criticality
-- saves ingestion statistics
-- moves clean files to `data/good_data`
-- moves fully invalid files to `data/bad_data`
-- splits mixed files into good and bad outputs
-
-Step 9: Airflow DAGs created and verified.
-
-Run all services:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.airflow.yml up --build
-```
-
-Open:
-
-- FastAPI docs: http://127.0.0.1:8000/docs
-- Streamlit app: http://127.0.0.1:8501
-- Airflow UI: http://127.0.0.1:8080
-
-Airflow DAGs:
-
-- `bike_data_ingestion`: reads one raw 10-row CSV file, validates it with Great Expectations, stores data quality statistics, emits alert information for medium/high criticality, and writes valid/invalid outputs.
-- `bike_scheduled_predictions`: checks new files in `data/good_data`, calls the FastAPI `/predict` endpoint in one batch request, and stores scheduled predictions in PostgreSQL.
-
-Step 10: CI created.
-
-The GitHub Actions workflow in `.github/workflows/ci.yml` installs dependencies and runs `pytest` on pushes and pull requests to `main`.
-
-## Defense 1 Checklist
-
-- Docker Compose: implemented for PostgreSQL, FastAPI, Streamlit, and Airflow.
-- Git and CI: GitHub Actions workflow added for automated tests.
-- Database: PostgreSQL stores predictions and ingestion statistics.
-- API: `/health`, `/predict`, and `/past-predictions` implemented.
-- Webapp: Streamlit prediction and past prediction pages call the API.
-- Data splitting: script generates files with exactly 10 data rows.
-- Data error generation: script creates null, range, category, type, duplicate, inconsistency, outlier, and missing-column errors.
-- Ingestion DAG: validates with Great Expectations, records statistics, splits good/bad data, and emits alert information.
-- Prediction DAG: reads `good_data`, sends one batch API call, and does not move or delete processed files.
-- Tests: API, splitting, error generation, validation, and ingestion pipeline tests pass.
+Each team member must understand and be able to explain the feature they contributed.

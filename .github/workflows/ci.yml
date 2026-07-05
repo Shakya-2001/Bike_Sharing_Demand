@@ -2,12 +2,12 @@ name: CI
 
 on:
   push:
-    branches: ["main"]
+    branches: ["develop", "main"]
   pull_request:
-    branches: ["main"]
+    branches: ["develop"]
 
 jobs:
-  tests:
+  quality:
     runs-on: ubuntu-latest
 
     steps:
@@ -22,6 +22,9 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements.txt
+
+      - name: Run linting
+        run: flake8 .
 
       - name: Run tests
         run: pytest
