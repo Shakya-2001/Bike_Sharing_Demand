@@ -5,7 +5,10 @@ from pathlib import Path
 from urllib.request import urlretrieve
 
 
-DATASET_URL = "https://archive.ics.uci.edu/static/public/275/bike+sharing+dataset.zip"
+DATASET_URL = (
+    "https://archive.ics.uci.edu/static/public/275/"
+    "bike+sharing+dataset.zip"
+)
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RAW_DIR = PROJECT_ROOT / "data" / "raw"
 ZIP_PATH = RAW_DIR / "bike_sharing_dataset.zip"
@@ -25,7 +28,9 @@ def main() -> None:
 
     expected_file = RAW_DIR / "hour.csv"
     if not expected_file.exists():
-        raise FileNotFoundError(f"Expected {expected_file} after extracting dataset")
+        raise FileNotFoundError(
+            f"Expected {expected_file} after extracting dataset"
+        )
 
     print(f"Dataset ready: {expected_file}")
 
