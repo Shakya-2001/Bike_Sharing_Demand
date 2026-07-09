@@ -38,7 +38,8 @@ TARGET_COLUMN = "cnt"
 def main() -> None:
     if not DATA_PATH.exists():
         raise FileNotFoundError(
-            f"Dataset not found at {DATA_PATH}. Run scripts/download_dataset.py first."
+            f"Dataset not found at {DATA_PATH}. "
+            "Run scripts/download_dataset.py first."
         )
 
     df = pd.read_csv(DATA_PATH)
@@ -55,7 +56,10 @@ def main() -> None:
     model = Pipeline(
         steps=[
             ("scaler", StandardScaler()),
-            ("regressor", HistGradientBoostingRegressor(max_iter=300, random_state=42)),
+            (
+                "regressor",
+                HistGradientBoostingRegressor(max_iter=300, random_state=42),
+            ),
         ]
     )
     model.fit(x_train, y_train)
