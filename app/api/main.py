@@ -95,7 +95,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Bike Sharing Demand API",
-    description="Predict hourly bike rental demand from weather and calendar data.",
+    description=(
+        "Predict hourly bike rental demand from weather and calendar data."
+    ),
     version="0.1.0",
     lifespan=lifespan,
 )
