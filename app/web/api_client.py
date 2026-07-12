@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from datetime import date
 from typing import Any
 
 import requests
@@ -14,9 +15,13 @@ class ApiClientError(RuntimeError):
     pass
 
 
-def predict_demand(features: dict[str, Any], source: str = "webapp") -> dict:
+def predict_demand(
+    features: dict[str, Any] | list[dict[str, Any]],
+    source: str = "webapp",
+) -> dict:
+    rows = features if isinstance(features, list) else [features]
     payload = {
-        "features": [features],
+        "features": rows,
         "source": source,
     }
 
@@ -35,11 +40,25 @@ def predict_demand(features: dict[str, Any], source: str = "webapp") -> dict:
     return response.json()
 
 
-def get_past_predictions(limit: int = 20) -> list[dict]:
+def get_past_predictions(
+    source: str = "all",
+    start_date: date | None = None,
+    end_date: date | None = None,
+    limit: int = 100,
+) -> list[dict]:
+    params: dict[str, str | int] = {
+        "source": source,
+        "limit": limit,
+    }
+    if start_date is not None:
+        params["start_date"] = f"{start_date.isoformat()}T00:00:00"
+    if end_date is not None:
+        params["end_date"] = f"{end_date.isoformat()}T23:59:59"
+
     try:
         response = requests.get(
             f"{API_BASE_URL}/past-predictions",
-            params={"limit": limit},
+            params=params,
             timeout=REQUEST_TIMEOUT,
         )
         response.raise_for_status()
