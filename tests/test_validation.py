@@ -63,6 +63,9 @@ def test_validate_bike_data_detects_corrupted_rows_and_missing_column(
 
     assert summary.criticality == "high"
     assert "dteday" in summary.missing_columns
-    assert summary.invalid_rows >= 6
+    assert summary.invalid_rows == 10
+    assert summary.valid_rows == 0
+    assert summary.error_counts["missing_required_column"] == 10
     assert summary.gx_success is False
-    assert len(good_df) + len(bad_df) == 10
+    assert good_df.empty
+    assert len(bad_df) == 10

@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
 import requests
 
 from app.database.models import Base
@@ -16,7 +17,6 @@ from app.ingestion.pipeline import (
     split_and_save_data,
 )
 from app.validation.bike_data import ValidationSummary, validate_bike_data
-from scripts.split_dataset import split_dataset
 
 try:
     from airflow.sdk import DAG, task
@@ -32,15 +32,12 @@ except ImportError:  # pragma: no cover - Airflow is installed in Docker later.
 
 DAG_ID = "bike_data_ingestion"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DATASET_PATH = PROJECT_ROOT / "data" / "raw" / "hour.csv"
 DEFAULT_RAW_DATA_DIR = PROJECT_ROOT / "data" / "raw_data"
 DEFAULT_GOOD_DATA_DIR = PROJECT_ROOT / "data" / "good_data"
 DEFAULT_BAD_DATA_DIR = PROJECT_ROOT / "data" / "bad_data"
-DEFAULT_NUMBER_OF_FILES = 25
 DEFAULT_POSTGRES_CONN_ID = "dsp_postgres"
 
 TASK_IDS = [
-    "split_dataset",
     "read_data",
     "validate_data",
     "save_statistics",
@@ -49,66 +46,66 @@ TASK_IDS = [
 ]
 
 
-def get_ingestion_config() -> dict[str, str | int]:
+def get_ingestion_config() -> dict[str, str]:
     return {
-        "dataset_path": os.getenv(
-            "INGESTION_DATASET_PATH",
-            str(DEFAULT_DATASET_PATH),
-        ),
         "raw_data_dir": os.getenv(
             "INGESTION_RAW_DATA_DIR",
-            str(DEFAULT_RAW_DATA_DIR),
+            os.getenv("RAW_DATA_DIR", str(DEFAULT_RAW_DATA_DIR)),
         ),
         "good_data_dir": os.getenv(
             "INGESTION_GOOD_DATA_DIR",
-            str(DEFAULT_GOOD_DATA_DIR),
+            os.getenv("GOOD_DATA_DIR", str(DEFAULT_GOOD_DATA_DIR)),
         ),
         "bad_data_dir": os.getenv(
             "INGESTION_BAD_DATA_DIR",
-            str(DEFAULT_BAD_DATA_DIR),
-        ),
-        "number_of_files": int(
-            os.getenv("INGESTION_NUMBER_OF_FILES", DEFAULT_NUMBER_OF_FILES)
+            os.getenv("BAD_DATA_DIR", str(DEFAULT_BAD_DATA_DIR)),
         ),
     }
 
 
-def create_raw_data_files(config: dict[str, str | int]) -> list[str]:
-    raw_data_dir = Path(str(config["raw_data_dir"]))
-    raw_data_dir.mkdir(parents=True, exist_ok=True)
-
-    existing_files = sorted(raw_data_dir.glob("*.csv"))
-    if existing_files:
-        return [str(path) for path in existing_files]
-
-    dataset_path = Path(str(config["dataset_path"]))
-    if not dataset_path.exists():
-        return []
-
-    generated_files = split_dataset(
-        dataset_path=dataset_path,
-        output_dir=raw_data_dir,
-        number_of_files=int(config["number_of_files"]),
-    )
-    return [str(path) for path in generated_files]
-
-
-def read_random_raw_file(raw_data_dir: str) -> str | None:
+def read_random_raw_file(raw_data_dir: str) -> dict[str, Any]:
     selected_file = choose_random_raw_file(Path(raw_data_dir))
-    return str(selected_file) if selected_file is not None else None
+    if selected_file is None:
+        return {"status": "skipped", "reason": "No raw data files found"}
+
+    csv_content = selected_file.read_text(encoding="utf-8")
+    payload = {
+        "status": "read",
+        "file_path": str(selected_file),
+        "file_name": selected_file.name,
+        "csv_content": csv_content,
+    }
+    selected_file.unlink()
+    return payload
 
 
-def validate_file(file_path: str | None) -> dict[str, Any]:
-    if file_path is None:
+def dataframe_records(df: pd.DataFrame) -> list[dict[str, Any]]:
+    return json.loads(df.to_json(orient="records", date_format="iso"))
+
+
+def validate_file(read_result: dict[str, Any]) -> dict[str, Any]:
+    if read_result.get("status") != "read":
         return {
             "status": "skipped",
-            "reason": "No raw data files found",
+            "reason": read_result.get("reason", "No raw data was read"),
         }
 
-    summary, _, _ = validate_bike_data(Path(file_path))
+    file_name = str(read_result["file_name"])
+    processing_dir = PROJECT_ROOT / "data" / "processing_data"
+    processing_dir.mkdir(parents=True, exist_ok=True)
+    processing_file = processing_dir / file_name
+    processing_file.write_text(read_result["csv_content"], encoding="utf-8")
+    try:
+        summary, good_df, bad_df = validate_bike_data(processing_file)
+    finally:
+        processing_file.unlink(missing_ok=True)
+    summary.file_path = str(read_result["file_path"])
     return {
         "status": "validated",
         "summary": summary.to_dict(),
+        "columns": list(good_df.columns),
+        "good_records": dataframe_records(good_df),
+        "bad_records": dataframe_records(bad_df),
     }
 
 
@@ -277,7 +274,15 @@ def split_valid_and_invalid_data(
         return {"good_file": None, "bad_file": None}
 
     summary = ValidationSummary(**validation_result["summary"])
-    _, good_df, bad_df = validate_bike_data(Path(summary.file_path))
+    columns = validation_result["columns"]
+    good_df = pd.DataFrame(
+        validation_result["good_records"],
+        columns=columns,
+    )
+    bad_df = pd.DataFrame(
+        validation_result["bad_records"],
+        columns=columns,
+    )
     return split_and_save_data(
         source_file=Path(summary.file_path),
         summary=summary,
@@ -298,20 +303,17 @@ if DAG is not None and task is not None:
         tags=["bike-sharing", "ingestion", "data-quality"],
     ) as ingestion_dag:
 
-        @task(task_id="split_dataset")
-        def split_dataset_task() -> dict[str, str | int | list[str]]:
-            config = get_ingestion_config()
-            files = create_raw_data_files(config)
-            return {**config, "raw_files": files}
-
         @task(task_id="read_data")
-        def read_data_task(config: dict[str, Any]) -> dict[str, Any]:
-            selected_file = read_random_raw_file(config["raw_data_dir"])
-            return {**config, "selected_file": selected_file}
+        def read_data_task() -> dict[str, Any]:
+            config = get_ingestion_config()
+            return {
+                **config,
+                **read_random_raw_file(config["raw_data_dir"]),
+            }
 
         @task(task_id="validate_data")
         def validate_data_task(payload: dict[str, Any]) -> dict[str, Any]:
-            return validate_file(payload["selected_file"])
+            return validate_file(payload)
 
         @task(task_id="save_statistics")
         def save_statistics_task(validation_result: dict[str, Any]) -> dict:
@@ -335,13 +337,12 @@ if DAG is not None and task is not None:
                 bad_data_dir=config["bad_data_dir"],
             )
 
-        ingestion_config = split_dataset_task()
-        selected_payload = read_data_task(ingestion_config)
+        selected_payload = read_data_task()
         validation_payload = validate_data_task(selected_payload)
         [
             save_statistics_task(validation_payload),
             send_alerts_task(validation_payload),
-            split_and_save_data_task(validation_payload, ingestion_config),
+            split_and_save_data_task(validation_payload, selected_payload),
         ]
 else:
     ingestion_dag = None

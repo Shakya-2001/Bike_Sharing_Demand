@@ -5,7 +5,6 @@ from pathlib import Path
 import pandas as pd
 
 from dags import ingestion_dag
-from scripts.split_dataset import DEFAULT_COLUMNS
 
 
 def make_rows(count: int = 20) -> list[dict]:
@@ -36,7 +35,6 @@ def make_rows(count: int = 20) -> list[dict]:
 def test_ingestion_dag_metadata() -> None:
     assert ingestion_dag.DAG_ID == "bike_data_ingestion"
     assert ingestion_dag.TASK_IDS == [
-        "split_dataset",
         "read_data",
         "validate_data",
         "save_statistics",
@@ -45,26 +43,30 @@ def test_ingestion_dag_metadata() -> None:
     ]
 
 
-def test_create_raw_data_files_generates_batches(tmp_path) -> None:
-    dataset_path = tmp_path / "hour.csv"
+def test_read_data_returns_content_and_deletes_raw_file(tmp_path) -> None:
     raw_data_dir = tmp_path / "raw_data"
-    pd.DataFrame(make_rows()).to_csv(dataset_path, index=False)
+    raw_data_dir.mkdir()
+    file_path = raw_data_dir / "batch_001.csv"
+    pd.DataFrame(make_rows(10)).to_csv(file_path, index=False)
 
-    config = {
-        "dataset_path": str(dataset_path),
-        "raw_data_dir": str(raw_data_dir),
-        "good_data_dir": str(tmp_path / "good_data"),
-        "bad_data_dir": str(tmp_path / "bad_data"),
-        "number_of_files": 2,
+    result = ingestion_dag.read_random_raw_file(str(raw_data_dir))
+
+    assert result["status"] == "read"
+    assert result["file_name"] == "batch_001.csv"
+    assert "instant,dteday,season" in result["csv_content"]
+    assert not file_path.exists()
+
+
+def test_read_data_skips_when_raw_folder_is_empty(tmp_path) -> None:
+    raw_data_dir = tmp_path / "raw_data"
+    raw_data_dir.mkdir()
+
+    result = ingestion_dag.read_random_raw_file(str(raw_data_dir))
+
+    assert result == {
+        "status": "skipped",
+        "reason": "No raw data files found",
     }
-
-    files = ingestion_dag.create_raw_data_files(config)
-
-    assert len(files) == 2
-    for file_path in files:
-        batch = pd.read_csv(file_path)
-        assert len(batch) == 10
-        assert list(batch.columns) == DEFAULT_COLUMNS
 
 
 def test_validate_and_split_file(tmp_path) -> None:
@@ -75,8 +77,8 @@ def test_validate_and_split_file(tmp_path) -> None:
     file_path = raw_data_dir / "batch_001.csv"
     pd.DataFrame(make_rows(10)).to_csv(file_path, index=False)
 
-    selected_file = ingestion_dag.read_random_raw_file(str(raw_data_dir))
-    validation_result = ingestion_dag.validate_file(selected_file)
+    read_result = ingestion_dag.read_random_raw_file(str(raw_data_dir))
+    validation_result = ingestion_dag.validate_file(read_result)
     outputs = ingestion_dag.split_valid_and_invalid_data(
         validation_result=validation_result,
         good_data_dir=str(good_data_dir),
@@ -88,6 +90,30 @@ def test_validate_and_split_file(tmp_path) -> None:
     assert Path(outputs["good_file"]).exists()
     assert outputs["bad_file"] is None
     assert not file_path.exists()
+
+
+def test_missing_column_file_is_written_only_to_bad_data(tmp_path) -> None:
+    raw_data_dir = tmp_path / "raw_data"
+    good_data_dir = tmp_path / "good_data"
+    bad_data_dir = tmp_path / "bad_data"
+    raw_data_dir.mkdir()
+    file_path = raw_data_dir / "missing_column.csv"
+    rows = pd.DataFrame(make_rows(10)).drop(columns=["dteday"])
+    rows.to_csv(file_path, index=False)
+
+    read_result = ingestion_dag.read_random_raw_file(str(raw_data_dir))
+    validation_result = ingestion_dag.validate_file(read_result)
+    outputs = ingestion_dag.split_valid_and_invalid_data(
+        validation_result,
+        str(good_data_dir),
+        str(bad_data_dir),
+    )
+
+    assert validation_result["summary"]["criticality"] == "high"
+    assert validation_result["summary"]["valid_rows"] == 0
+    assert validation_result["summary"]["invalid_rows"] == 10
+    assert outputs["good_file"] is None
+    assert Path(outputs["bad_file"]).exists()
 
 
 def test_build_alert_message_for_high_criticality() -> None:

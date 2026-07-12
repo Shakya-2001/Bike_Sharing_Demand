@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import random
-import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -61,13 +60,15 @@ def split_and_save_data(
 
     if summary.invalid_rows == 0:
         good_path = good_data_dir / f"{stem}_good.csv"
-        shutil.move(str(source_file), good_path)
+        good_df.to_csv(good_path, index=False)
+        source_file.unlink(missing_ok=True)
         outputs["good_file"] = str(good_path)
         return outputs
 
     if summary.valid_rows == 0:
         bad_path = bad_data_dir / f"{stem}_bad.csv"
-        shutil.move(str(source_file), bad_path)
+        bad_df.to_csv(bad_path, index=False)
+        source_file.unlink(missing_ok=True)
         outputs["bad_file"] = str(bad_path)
         return outputs
 
@@ -75,7 +76,7 @@ def split_and_save_data(
     bad_path = bad_data_dir / f"{stem}_bad.csv"
     good_df.to_csv(good_path, index=False)
     bad_df.to_csv(bad_path, index=False)
-    source_file.unlink()
+    source_file.unlink(missing_ok=True)
     outputs["good_file"] = str(good_path)
     outputs["bad_file"] = str(bad_path)
     return outputs

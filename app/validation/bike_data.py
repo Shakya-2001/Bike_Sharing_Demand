@@ -208,6 +208,7 @@ def find_latest_data_docs_report(gx_project_root: Path) -> str | None:
 
 def collect_invalid_row_indices(
     df: pd.DataFrame,
+    missing_columns: list[str] | None = None,
 ) -> tuple[set[int], dict[str, int]]:
     invalid_indices: set[int] = set()
     error_counts = {
@@ -216,7 +217,12 @@ def collect_invalid_row_indices(
         "invalid_numeric_type": 0,
         "duplicate_instant": 0,
         "holiday_workingday_inconsistency": 0,
+        "missing_required_column": 0,
     }
+
+    if missing_columns:
+        invalid_indices.update(int(index) for index in df.index)
+        error_counts["missing_required_column"] = len(df)
 
     present_required_columns = [
         column for column in REQUIRED_COLUMNS if column in df.columns
@@ -293,7 +299,10 @@ def validate_bike_data(
     except Exception:
         gx_success, gx_failed_expectations = run_gx_expectations(df)
         gx_report_path = None
-    invalid_indices, error_counts = collect_invalid_row_indices(df)
+    invalid_indices, error_counts = collect_invalid_row_indices(
+        df,
+        missing_columns=missing_columns,
+    )
 
     invalid_rows = len(invalid_indices)
     total_rows = len(df)
