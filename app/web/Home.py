@@ -3,8 +3,12 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from app.web.api_client import ApiClientError, get_past_predictions
-from app.web.api_client import predict_demand
+from app.web.api_client import ApiClientError, predict_demand
+from app.web.prediction_data import MONTH_NAMES, SEASON_MONTHS, WEEKDAY_NAMES
+from app.web.prediction_data import batch_rows, prediction_frame
+from app.web.prediction_data import normalize_feels_like_temperature
+from app.web.prediction_data import normalize_humidity, normalize_temperature
+from app.web.prediction_data import normalize_wind_speed
 
 
 st.set_page_config(
@@ -28,14 +32,32 @@ def build_feature_payload() -> dict:
                 4: "Winter",
             }[value],
         )
-        mnth = st.slider("Month", min_value=1, max_value=12, value=6)
+        mnth = st.selectbox(
+            "Month",
+            options=SEASON_MONTHS[season],
+            format_func=lambda value: MONTH_NAMES[value],
+        )
         hr = st.slider("Hour", min_value=0, max_value=23, value=8)
-        weekday = st.slider("Weekday", min_value=0, max_value=6, value=1)
+        weekday = st.selectbox(
+            "Weekday",
+            options=list(WEEKDAY_NAMES),
+            index=1,
+            format_func=lambda value: WEEKDAY_NAMES[value],
+        )
 
     with middle:
-        yr = st.selectbox("Year index", options=[0, 1], index=1)
-        holiday = st.selectbox("Holiday", options=[0, 1])
-        workingday = st.selectbox("Working day", options=[0, 1], index=1)
+        year = st.selectbox("Year", options=[2011, 2012], index=1)
+        holiday = st.selectbox(
+            "Holiday",
+            options=[0, 1],
+            format_func=lambda value: "Yes" if value else "No",
+        )
+        workingday = st.selectbox(
+            "Working day",
+            options=[0, 1],
+            index=1,
+            format_func=lambda value: "Yes" if value else "No",
+        )
         weathersit = st.selectbox(
             "Weather",
             options=[1, 2, 3, 4],
@@ -48,10 +70,39 @@ def build_feature_payload() -> dict:
         )
 
     with right:
-        temp = st.slider("Temperature", 0.0, 1.0, 0.55, 0.01)
-        atemp = st.slider("Feels-like temperature", 0.0, 1.0, 0.52, 0.01)
-        hum = st.slider("Humidity", 0.0, 1.0, 0.60, 0.01)
-        windspeed = st.slider("Wind speed", 0.0, 1.0, 0.20, 0.01)
+        temperature_c = st.slider(
+            "Temperature (°C)",
+            min_value=-8.0,
+            max_value=39.0,
+            value=18.0,
+            step=0.5,
+        )
+        feels_like_c = st.slider(
+            "Feels-like temperature (°C)",
+            min_value=-16.0,
+            max_value=50.0,
+            value=18.0,
+            step=0.5,
+        )
+        humidity_percent = st.slider(
+            "Humidity (%)",
+            min_value=0,
+            max_value=100,
+            value=60,
+        )
+        wind_speed_kmh = st.slider(
+            "Wind speed (km/h)",
+            min_value=0.0,
+            max_value=67.0,
+            value=13.5,
+            step=0.5,
+        )
+
+    yr = year - 2011
+    temp = normalize_temperature(temperature_c)
+    atemp = normalize_feels_like_temperature(feels_like_c)
+    hum = normalize_humidity(humidity_percent)
+    windspeed = normalize_wind_speed(wind_speed_kmh)
 
     return {
         "season": season,
@@ -69,64 +120,79 @@ def build_feature_payload() -> dict:
     }
 
 
-def render_prediction_result(result: dict) -> None:
-    predictions = result.get("predictions", [])
-    if not predictions:
-        st.warning("The API returned no prediction.")
+def show_result(result: dict, batch: bool = False) -> None:
+    frame = prediction_frame(result)
+    if frame.empty:
+        st.warning("The API returned no predictions.")
         return
 
-    predicted_count = predictions[0]["prediction"]
-    st.metric("Predicted bike demand", f"{predicted_count:.0f} rentals")
-
-
-def render_prediction_history() -> None:
-    st.subheader("Past predictions")
-    try:
-        rows = get_past_predictions(limit=20)
-    except ApiClientError as exc:
-        st.info(str(exc))
-        return
-
-    if not rows:
-        st.info("No predictions saved yet.")
-        return
-
-    table_rows = []
-    for row in rows:
-        features = row.get("features", {})
-        table_rows.append(
-            {
-                "created_at": row.get("created_at"),
-                "prediction": round(row.get("prediction", 0), 2),
-                "hour": features.get("hr"),
-                "month": features.get("mnth"),
-                "weather": features.get("weathersit"),
-                "temperature": features.get("temp"),
-                "humidity": features.get("hum"),
-                "source": row.get("source"),
-            }
+    predictions = frame["prediction"].clip(lower=0)
+    if batch:
+        left, middle, right = st.columns(3)
+        left.metric("Predicted rows", len(frame))
+        middle.metric(
+            "Average hourly demand",
+            f"{predictions.mean():,.0f} rentals",
+        )
+        right.metric(
+            "Total predicted rentals",
+            f"{predictions.sum():,.0f}",
+        )
+    else:
+        st.metric(
+            "Estimated bike rentals",
+            f"{predictions.iloc[0]:,.0f}",
         )
 
-    st.dataframe(pd.DataFrame(table_rows), use_container_width=True)
+    st.dataframe(frame, width="stretch", hide_index=True)
+
+
+def render_single_prediction() -> None:
+    features = build_feature_payload()
+    if st.button("Predict demand", type="primary"):
+        try:
+            show_result(predict_demand(features))
+        except ApiClientError as exc:
+            st.error(str(exc))
+
+
+def render_batch_prediction() -> None:
+    uploaded = st.file_uploader("Inference CSV", type=["csv"])
+    if uploaded is None:
+        return
+
+    try:
+        data = pd.read_csv(uploaded)
+        rows = batch_rows(data)
+    except (ValueError, pd.errors.ParserError, UnicodeDecodeError) as exc:
+        st.error(str(exc))
+        return
+
+    st.dataframe(data, width="stretch", hide_index=True)
+    if st.button("Predict batch", type="primary"):
+        try:
+            show_result(predict_demand(rows), batch=True)
+        except ApiClientError as exc:
+            st.error(str(exc))
 
 
 def main() -> None:
     st.title("Hourly Bike Sharing Demand Prediction")
-    st.caption("FastAPI prediction demo with saved prediction history")
-
-    features = build_feature_payload()
-
-    if st.button("Predict demand", type="primary"):
-        try:
-            result = predict_demand(features)
-        except ApiClientError as exc:
-            st.error(str(exc))
-        else:
-            render_prediction_result(result)
-
-    st.divider()
-    render_prediction_history()
+    single_tab, batch_tab = st.tabs(["Single prediction", "Batch prediction"])
+    with single_tab:
+        render_single_prediction()
+    with batch_tab:
+        render_batch_prediction()
 
 
 if __name__ == "__main__":
-    main()
+    navigation = st.navigation(
+        [
+            st.Page(main, title="Prediction", default=True),
+            st.Page(
+                "pages/2_Past_Predictions.py",
+                title="Past Predictions",
+            ),
+        ]
+    )
+    navigation.run()
