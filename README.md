@@ -67,6 +67,15 @@ Create a local `.env` file from the example:
 cp .env.example .env
 ```
 
+For Teams alerts, paste the real incoming webhook URL only in your local
+`.env` file:
+
+```bash
+TEAMS_WEBHOOK_URL=https://your-teams-webhook-url
+```
+
+Do not commit the real webhook URL to GitHub.
+
 The project is intended to run with Docker Compose once the feature branches are merged.
 
 ## Defense 1 Scope
