@@ -5,8 +5,20 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import great_expectations as gx
+from great_expectations import (
+    Checkpoint,
+    ExpectationSuite,
+    ValidationDefinition,
+)
 from great_expectations.core.batch import Batch
 from great_expectations.execution_engine import PandasExecutionEngine
+from great_expectations.expectations import (
+    ExpectColumnToExist,
+    ExpectColumnValuesToBeBetween,
+    ExpectColumnValuesToBeUnique,
+    ExpectColumnValuesToNotBeNull,
+)
 from great_expectations.self_check.util import build_in_memory_runtime_context
 from great_expectations.validator.validator import Validator
 
@@ -72,9 +84,33 @@ class ValidationSummary:
     error_counts: dict[str, int]
     gx_success: bool
     gx_failed_expectations: int
+    gx_report_path: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+def build_expectation_suite() -> ExpectationSuite:
+    expectations = []
+    for column in REQUIRED_COLUMNS:
+        expectations.append(ExpectColumnToExist(column=column))
+        expectations.append(ExpectColumnValuesToNotBeNull(column=column))
+
+    for column, (min_value, max_value) in RANGE_RULES.items():
+        expectations.append(
+            ExpectColumnValuesToBeBetween(
+                column=column,
+                min_value=min_value,
+                max_value=max_value,
+                mostly=1.0,
+            )
+        )
+
+    expectations.append(ExpectColumnValuesToBeUnique(column="instant"))
+    return ExpectationSuite(
+        name="bike_sharing_ingestion_suite",
+        expectations=expectations,
+    )
 
 
 def build_validator(df: pd.DataFrame) -> Validator:
@@ -115,6 +151,59 @@ def run_gx_expectations(df: pd.DataFrame) -> tuple[bool, int]:
     result = validator.validate()
     failed_expectations = sum(1 for item in result.results if not item.success)
     return bool(result.success), failed_expectations
+
+
+def run_gx_checkpoint(file_path: Path) -> tuple[bool, int, str | None]:
+    gx_project_root = Path("data/gx")
+    context = gx.get_context(mode="file", project_root_dir=gx_project_root)
+    data_source = context.data_sources.add_or_update_pandas_filesystem(
+        name="bike_sharing_files",
+        base_directory=str(file_path.parent),
+    )
+    asset = data_source.add_csv_asset(name="ingested_file")
+    batch_definition = asset.add_batch_definition_path(
+        name="selected_file",
+        path=file_path.name,
+    )
+    suite = context.suites.add_or_update(build_expectation_suite())
+    validation_definition = context.validation_definitions.add_or_update(
+        ValidationDefinition(
+            name="bike_sharing_ingestion_validation",
+            data=batch_definition,
+            suite=suite,
+        )
+    )
+    checkpoint = context.checkpoints.add_or_update(
+        Checkpoint(
+            name="bike_sharing_ingestion_checkpoint",
+            validation_definitions=[validation_definition],
+            result_format="SUMMARY",
+        )
+    )
+
+    result = checkpoint.run()
+    context.build_data_docs()
+    failed_expectations = 0
+    for validation_result in result.run_results.values():
+        failed_expectations += sum(
+            1 for item in validation_result.results if not item.success
+        )
+
+    report_path = find_latest_data_docs_report(gx_project_root)
+    return bool(result.success), failed_expectations, report_path
+
+
+def find_latest_data_docs_report(gx_project_root: Path) -> str | None:
+    data_docs_dir = gx_project_root / "gx" / "uncommitted" / "data_docs"
+    reports = [
+        path
+        for path in data_docs_dir.rglob("*.html")
+        if "validations" in path.parts
+    ]
+    if not reports:
+        return None
+    latest_report = max(reports, key=lambda path: path.stat().st_mtime)
+    return str(latest_report)
 
 
 def collect_invalid_row_indices(
@@ -197,7 +286,13 @@ def validate_bike_data(
     missing_columns = [
         column for column in REQUIRED_COLUMNS if column not in df.columns
     ]
-    gx_success, gx_failed_expectations = run_gx_expectations(df)
+    try:
+        gx_success, gx_failed_expectations, gx_report_path = run_gx_checkpoint(
+            file_path
+        )
+    except Exception:
+        gx_success, gx_failed_expectations = run_gx_expectations(df)
+        gx_report_path = None
     invalid_indices, error_counts = collect_invalid_row_indices(df)
 
     invalid_rows = len(invalid_indices)
@@ -223,5 +318,6 @@ def validate_bike_data(
         error_counts=error_counts,
         gx_success=gx_success,
         gx_failed_expectations=gx_failed_expectations,
+        gx_report_path=gx_report_path,
     )
     return summary, good_df, bad_df

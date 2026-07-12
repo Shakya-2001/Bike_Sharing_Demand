@@ -37,6 +37,7 @@ def save_statistics(
         error_counts=summary.error_counts,
         gx_success=summary.gx_success,
         gx_failed_expectations=summary.gx_failed_expectations,
+        gx_report_path=summary.gx_report_path,
     )
     db.add(stat)
     db.commit()

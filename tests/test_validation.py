@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pandas as pd
 
 from app.validation.bike_data import validate_bike_data
@@ -37,6 +39,8 @@ def test_validate_bike_data_marks_clean_file_as_valid(tmp_path) -> None:
     assert summary.invalid_rows == 0
     assert summary.valid_rows == 10
     assert summary.gx_success is True
+    assert summary.gx_report_path is not None
+    assert Path(summary.gx_report_path).exists()
     assert len(good_df) == 10
     assert bad_df.empty
 
