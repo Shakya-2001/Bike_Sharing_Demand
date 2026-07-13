@@ -68,9 +68,15 @@ workflow URL locally:
 ```env
 POSTGRES_PASSWORD=your-local-postgres-password
 DATABASE_URL=postgresql://dsp:your-local-postgres-password@postgres:5432/dsp
+AIRFLOW_API_SECRET_KEY=your-long-random-airflow-api-secret
+AIRFLOW_JWT_SECRET=your-long-random-airflow-jwt-secret
 GRAFANA_ADMIN_PASSWORD=your-local-grafana-password
 TEAMS_WEBHOOK_URL=https://your-private-teams-workflow-url
 ```
+
+The two Airflow secrets must be shared by every Airflow container. Without
+them, Airflow 3 rejects task-execution tokens and DAG tasks fail before their
+Python functions start.
 
 Never commit `.env` or the real webhook URL.
 

@@ -34,6 +34,7 @@ DEFAULT_RAW_DATA_DIR = PROJECT_ROOT / "data" / "raw_data"
 DEFAULT_GOOD_DATA_DIR = PROJECT_ROOT / "data" / "good_data"
 DEFAULT_BAD_DATA_DIR = PROJECT_ROOT / "data" / "bad_data"
 DEFAULT_POSTGRES_CONN_ID = "dsp_postgres"
+MAX_ACTIVE_RUNS = 1
 
 TASK_IDS = [
     "read_data",
@@ -301,6 +302,7 @@ if DAG is not None and task is not None:
         schedule="*/1 * * * *",
         start_date=datetime(2026, 1, 1),
         catchup=False,
+        max_active_runs=MAX_ACTIVE_RUNS,
         tags=["bike-sharing", "ingestion", "data-quality"],
     ) as ingestion_dag:
 
@@ -327,7 +329,7 @@ if DAG is not None and task is not None:
             print(json.dumps(delivery, indent=2))
             return delivery
 
-        @task(task_id="split_and_save_data")
+        @task(task_id="split_and_save_data", multiple_outputs=False)
         def split_and_save_data_task(
             validation_result: dict[str, Any],
             config: dict[str, Any],

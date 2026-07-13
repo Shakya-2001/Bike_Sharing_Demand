@@ -81,6 +81,8 @@ def test_secrets_are_referenced_through_environment_variables() -> None:
     assert "env_file: .env" in compose
     assert "${POSTGRES_PASSWORD}" in compose
     assert "${GRAFANA_ADMIN_PASSWORD}" in compose
+    assert "AIRFLOW__API__SECRET_KEY: ${AIRFLOW_API_SECRET_KEY}" in compose
+    assert "AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}" in compose
     assert "TEAMS_WEBHOOK_URL=https://" not in compose
 
 

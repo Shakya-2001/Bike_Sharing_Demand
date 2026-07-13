@@ -34,6 +34,7 @@ def make_rows(count: int = 20) -> list[dict]:
 
 def test_ingestion_dag_metadata() -> None:
     assert ingestion_dag.DAG_ID == "bike_data_ingestion"
+    assert ingestion_dag.MAX_ACTIVE_RUNS == 1
     assert ingestion_dag.TASK_IDS == [
         "read_data",
         "validate_data",
@@ -41,6 +42,11 @@ def test_ingestion_dag_metadata() -> None:
         "send_alerts",
         "split_and_save_data",
     ]
+    if ingestion_dag.ingestion_dag is not None:
+        split_task = ingestion_dag.ingestion_dag.task_dict[
+            "split_and_save_data"
+        ]
+        assert split_task.multiple_outputs is False
 
 
 def test_read_data_returns_content_and_deletes_raw_file(tmp_path) -> None:

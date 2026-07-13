@@ -12,6 +12,8 @@ x-airflow-common: &airflow-common
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/airflow
     AIRFLOW_CONN_DSP_POSTGRES: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     AIRFLOW__API__BASE_URL: http://airflow-api-server:8080
+    AIRFLOW__API__SECRET_KEY: ${AIRFLOW_API_SECRET_KEY}
+    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
     PYTHONPATH: /opt/airflow
     RAW_DATA_DIR: /opt/airflow/data/raw_data
     GOOD_DATA_DIR: /opt/airflow/data/good_data

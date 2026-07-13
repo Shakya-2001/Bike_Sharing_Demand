@@ -27,6 +27,7 @@ DEFAULT_STATE_FILE = (
     PROJECT_ROOT / "data" / "prediction_state" / "processed_files.json"
 )
 DEFAULT_API_URL = "http://api:8000"
+MAX_ACTIVE_RUNS = 1
 TASK_IDS = ["check_for_new_data", "make_predictions"]
 
 FEATURE_COLUMNS = [
@@ -162,6 +163,7 @@ if DAG is not None and task is not None:
         schedule="*/2 * * * *",
         start_date=datetime(2026, 1, 1),
         catchup=False,
+        max_active_runs=MAX_ACTIVE_RUNS,
         tags=["bike-sharing", "prediction"],
     ) as prediction_dag:
 

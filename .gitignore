@@ -16,6 +16,7 @@ data/bad_data/*.csv
 data/archived_data/*.csv
 data/gx/
 data/processing_data/*.csv
+data/prediction_state/*.json
 
 models/*.joblib
 

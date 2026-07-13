@@ -31,6 +31,7 @@ def make_rows(count: int = 2) -> list[dict]:
 
 def test_prediction_dag_metadata() -> None:
     assert prediction_dag.DAG_ID == "bike_demand_prediction"
+    assert prediction_dag.MAX_ACTIVE_RUNS == 1
     assert prediction_dag.TASK_IDS == [
         "check_for_new_data",
         "make_predictions",
