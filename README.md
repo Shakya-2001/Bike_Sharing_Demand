@@ -113,6 +113,10 @@ docker compose exec airflow-api-server \
 MLflow is containerized for the complete project architecture but is not used
 for Defense 1 model serving and is not exposed on a host port.
 
+On completely new Docker volumes, Data Docs can return HTTP 403 until the
+first ingestion run generates a Great Expectations report. Open it after that
+run; the report directory is intentionally empty before validation.
+
 ## Local Python Environment
 
 The Docker application does not require a host Python environment. Create one

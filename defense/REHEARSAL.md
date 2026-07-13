@@ -33,7 +33,9 @@ Confirm these pages open:
 - Streamlit: http://127.0.0.1:8501
 - FastAPI docs: http://127.0.0.1:8000/docs
 - Airflow: http://127.0.0.1:8080
-- Data Docs: http://127.0.0.1:8081
+
+Open Data Docs at http://127.0.0.1:8081 after the first ingestion run. A fresh
+environment can return HTTP 403 while the report directory is still empty.
 
 Read the generated Airflow password:
 
