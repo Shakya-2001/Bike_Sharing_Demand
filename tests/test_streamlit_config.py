@@ -72,11 +72,12 @@ def test_prediction_source_names_are_user_friendly() -> None:
 
 
 def test_celsius_temperatures_are_normalized_for_model() -> None:
-    assert normalize_temperature(-8.0) == 0.0
-    assert normalize_temperature(39.0) == 1.0
-    assert normalize_feels_like_temperature(-16.0) == 0.0
+    assert normalize_temperature(0.0) == 0.0
+    assert normalize_temperature(41.0) == 1.0
+    assert normalize_temperature(50.0) == pytest.approx(1.2195, abs=0.0001)
+    assert normalize_feels_like_temperature(0.0) == 0.0
     assert normalize_feels_like_temperature(50.0) == 1.0
-    assert normalize_temperature(18.0) == pytest.approx(0.5532, abs=0.0001)
+    assert normalize_temperature(18.0) == pytest.approx(0.4390, abs=0.0001)
 
 
 def test_weather_units_are_normalized_for_model() -> None:

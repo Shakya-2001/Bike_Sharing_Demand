@@ -60,11 +60,11 @@ SOURCE_NAMES = {
 
 
 def normalize_temperature(celsius: float) -> float:
-    return (celsius - (-8.0)) / (39.0 - (-8.0))
+    return celsius / 41.0
 
 
 def normalize_feels_like_temperature(celsius: float) -> float:
-    return (celsius - (-16.0)) / (50.0 - (-16.0))
+    return celsius / 50.0
 
 
 def normalize_humidity(percent: int) -> float:

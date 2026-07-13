@@ -72,14 +72,14 @@ def build_feature_payload() -> dict:
     with right:
         temperature_c = st.slider(
             "Temperature (°C)",
-            min_value=-8.0,
-            max_value=39.0,
+            min_value=0.0,
+            max_value=50.0,
             value=18.0,
             step=0.5,
         )
         feels_like_c = st.slider(
             "Feels-like temperature (°C)",
-            min_value=-16.0,
+            min_value=0.0,
             max_value=50.0,
             value=18.0,
             step=0.5,
