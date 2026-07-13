@@ -18,3 +18,5 @@ data/gx/
 data/processing_data/*.csv
 
 models/*.joblib
+
+.bikeshare/
