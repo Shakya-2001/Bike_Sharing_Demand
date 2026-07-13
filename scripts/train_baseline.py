@@ -5,11 +5,12 @@ from pathlib import Path
 
 import joblib
 import pandas as pd
+from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import OrdinalEncoder
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -18,7 +19,7 @@ MODEL_DIR = PROJECT_ROOT / "models"
 MODEL_PATH = MODEL_DIR / "bike_demand_model.pkl"
 METRICS_PATH = MODEL_DIR / "baseline_metrics.json"
 
-FEATURE_COLUMNS = [
+CATEGORICAL_COLUMNS = [
     "season",
     "yr",
     "mnth",
@@ -27,12 +28,48 @@ FEATURE_COLUMNS = [
     "weekday",
     "workingday",
     "weathersit",
+]
+NUMERIC_COLUMNS = [
     "temp",
     "atemp",
     "hum",
     "windspeed",
 ]
+FEATURE_COLUMNS = CATEGORICAL_COLUMNS + NUMERIC_COLUMNS
 TARGET_COLUMN = "cnt"
+
+
+def build_model() -> Pipeline:
+    preprocessor = ColumnTransformer(
+        transformers=[
+            (
+                "categorical",
+                OrdinalEncoder(
+                    handle_unknown="use_encoded_value",
+                    unknown_value=float("nan"),
+                ),
+                CATEGORICAL_COLUMNS,
+            ),
+        ],
+        remainder="passthrough",
+    )
+    regressor = HistGradientBoostingRegressor(
+        categorical_features=list(range(len(CATEGORICAL_COLUMNS))),
+        learning_rate=0.1,
+        max_iter=600,
+        max_leaf_nodes=64,
+        min_samples_leaf=20,
+        early_stopping=True,
+        validation_fraction=0.1,
+        n_iter_no_change=25,
+        random_state=42,
+    )
+    return Pipeline(
+        steps=[
+            ("preprocessor", preprocessor),
+            ("regressor", regressor),
+        ]
+    )
 
 
 def main() -> None:
@@ -43,6 +80,9 @@ def main() -> None:
         )
 
     df = pd.read_csv(DATA_PATH)
+    if "instant" in df.columns:
+        df = df.sort_values("instant").reset_index(drop=True)
+
     x = df[FEATURE_COLUMNS]
     y = df[TARGET_COLUMN]
 
@@ -50,18 +90,10 @@ def main() -> None:
         x,
         y,
         test_size=0.2,
-        random_state=42,
+        shuffle=False,
     )
 
-    model = Pipeline(
-        steps=[
-            ("scaler", StandardScaler()),
-            (
-                "regressor",
-                HistGradientBoostingRegressor(max_iter=300, random_state=42),
-            ),
-        ]
-    )
+    model = build_model()
     model.fit(x_train, y_train)
 
     predictions = model.predict(x_test)
@@ -70,6 +102,7 @@ def main() -> None:
         "rows": int(len(df)),
         "features": FEATURE_COLUMNS,
         "target": TARGET_COLUMN,
+        "split": "chronological",
         "mae": float(mean_absolute_error(y_test, predictions)),
         "rmse": float(mean_squared_error(y_test, predictions) ** 0.5),
         "r2": float(r2_score(y_test, predictions)),
