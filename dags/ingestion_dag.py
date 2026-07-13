@@ -9,9 +9,6 @@ from typing import Any
 import pandas as pd
 import requests
 
-from app.database.models import Base
-from app.database.session import SessionLocal, engine
-
 from app.ingestion.pipeline import (
     choose_random_raw_file,
     save_statistics,
