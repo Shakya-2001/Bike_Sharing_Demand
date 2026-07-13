@@ -1,12 +1,32 @@
 from __future__ import annotations
 
 import argparse
+import random
 from pathlib import Path
 
 import pandas as pd
 
 
-RANDOM_SEED = 42
+def validate_probability(name: str, probability: float) -> None:
+    if not 0 <= probability <= 1:
+        raise ValueError(f"{name} must be between 0 and 1")
+
+
+def sample_error_indices(
+    df: pd.DataFrame,
+    probability: float,
+    seed: int | None,
+    seed_offset: int,
+) -> pd.Index:
+    if probability == 0 or df.empty:
+        return df.index[:0]
+
+    sample_size = max(1, round(len(df) * probability))
+    random_state = seed + seed_offset if seed is not None else None
+    return df.sample(
+        n=min(sample_size, len(df)),
+        random_state=random_state,
+    ).index
 
 
 def apply_row_error(
@@ -14,16 +34,14 @@ def apply_row_error(
     probability: float,
     column: str,
     value,
+    seed: int | None,
     seed_offset: int,
 ) -> pd.DataFrame:
     if column not in df.columns:
         return df
     if isinstance(value, str):
         df[column] = df[column].astype("object")
-    mask = df.sample(
-        frac=probability,
-        random_state=RANDOM_SEED + seed_offset,
-    ).index
+    mask = sample_error_indices(df, probability, seed, seed_offset)
     df.loc[mask, column] = value
     return df
 
@@ -37,42 +55,81 @@ def inject_errors(
     duplicate_probability: float = 0.05,
     inconsistency_probability: float = 0.05,
     outlier_probability: float = 0.05,
+    schema_probability: float = 0.05,
     drop_column: bool = False,
+    seed: int | None = None,
 ) -> pd.DataFrame:
+    probabilities = {
+        "null_probability": null_probability,
+        "range_probability": range_probability,
+        "category_probability": category_probability,
+        "type_probability": type_probability,
+        "duplicate_probability": duplicate_probability,
+        "inconsistency_probability": inconsistency_probability,
+        "outlier_probability": outlier_probability,
+        "schema_probability": schema_probability,
+    }
+    for name, probability in probabilities.items():
+        validate_probability(name, probability)
+
     corrupted = df.copy()
 
-    corrupted = apply_row_error(corrupted, null_probability, "atemp", pd.NA, 1)
-    corrupted = apply_row_error(corrupted, range_probability, "hum", 2.5, 2)
     corrupted = apply_row_error(
-        corrupted, category_probability, "weathersit", 99, 3
+        corrupted, null_probability, "atemp", pd.NA, seed, 1
     )
     corrupted = apply_row_error(
-        corrupted, type_probability, "windspeed", "not_a_number", 4
+        corrupted, range_probability, "hum", 2.5, seed, 2
     )
     corrupted = apply_row_error(
-        corrupted, inconsistency_probability, "workingday", 1, 5
+        corrupted, category_probability, "weathersit", 99, seed, 3
+    )
+    corrupted = apply_row_error(
+        corrupted, type_probability, "windspeed", "not_a_number", seed, 4
     )
 
     if {"workingday", "holiday"}.issubset(corrupted.columns):
-        inconsistent_rows = corrupted.sample(
-            frac=inconsistency_probability,
-            random_state=RANDOM_SEED + 6,
-        ).index
+        inconsistent_rows = sample_error_indices(
+            corrupted,
+            inconsistency_probability,
+            seed,
+            6,
+        )
         corrupted.loc[inconsistent_rows, "holiday"] = 1
         corrupted.loc[inconsistent_rows, "workingday"] = 1
 
     corrupted = apply_row_error(
-        corrupted, outlier_probability, "temp", 9.99, 7
+        corrupted, outlier_probability, "temp", 9.99, seed, 7
     )
 
-    if "instant" in corrupted.columns and duplicate_probability > 0:
-        duplicate_rows = corrupted.sample(
-            frac=duplicate_probability,
-            random_state=RANDOM_SEED + 8,
+    if "instant" in corrupted.columns and len(corrupted) > 1:
+        duplicate_rows = sample_error_indices(
+            corrupted,
+            duplicate_probability,
+            seed,
+            8,
         )
-        corrupted = pd.concat([corrupted, duplicate_rows], ignore_index=True)
+        if len(duplicate_rows) > 0:
+            duplicate_set = set(duplicate_rows)
+            donor_candidates = [
+                index
+                for index in corrupted.index
+                if index not in duplicate_set
+            ]
+            donor_index = (
+                donor_candidates[0]
+                if donor_candidates
+                else corrupted.index[0]
+            )
+            corrupted.loc[duplicate_rows, "instant"] = corrupted.loc[
+                donor_index,
+                "instant",
+            ]
 
-    if drop_column and "dteday" in corrupted.columns:
+    random_generator = random.Random(seed)
+    should_drop_column = (
+        drop_column or random_generator.random() < schema_probability
+    )
+    if should_drop_column and "dteday" in corrupted.columns:
         corrupted = corrupted.drop(columns=["dteday"])
 
     return corrupted
@@ -98,7 +155,9 @@ def parse_args() -> argparse.Namespace:
         default=0.05,
     )
     parser.add_argument("--outlier-probability", type=float, default=0.05)
+    parser.add_argument("--schema-probability", type=float, default=0.05)
     parser.add_argument("--drop-column", action="store_true")
+    parser.add_argument("--seed", type=int)
     return parser.parse_args()
 
 
@@ -114,7 +173,9 @@ def main() -> None:
         duplicate_probability=args.duplicate_probability,
         inconsistency_probability=args.inconsistency_probability,
         outlier_probability=args.outlier_probability,
+        schema_probability=args.schema_probability,
         drop_column=args.drop_column,
+        seed=args.seed,
     )
     args.output_path.parent.mkdir(parents=True, exist_ok=True)
     corrupted.to_csv(args.output_path, index=False)
