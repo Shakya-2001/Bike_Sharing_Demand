@@ -9,8 +9,6 @@ from typing import Any
 import pandas as pd
 import requests
 
-from app.database.models import Base
-from app.database.session import SessionLocal, engine
 from app.ingestion.pipeline import (
     choose_random_raw_file,
     save_statistics,
@@ -120,6 +118,9 @@ def save_ingestion_statistics(validation_result: dict[str, Any]) -> dict:
     postgres_conn_id = os.getenv("AIRFLOW_POSTGRES_CONN_ID")
     if PostgresHook is not None and postgres_conn_id:
         return save_statistics_with_postgres_hook(summary, postgres_conn_id)
+
+    from app.database.models import Base
+    from app.database.session import SessionLocal, engine
 
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as db:
