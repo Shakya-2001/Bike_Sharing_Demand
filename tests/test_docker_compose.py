@@ -91,6 +91,14 @@ def test_postgres_initializer_is_executable() -> None:
     assert initializer.stat().st_mode & stat.S_IXUSR
 
 
+def test_postgres_initializer_uses_unix_line_endings() -> None:
+    attributes = read(".gitattributes")
+    initializer = PROJECT_ROOT / "docker/postgres/init-databases.sh"
+
+    assert "*.sh text eol=lf" in attributes.splitlines()
+    assert b"\r\n" not in initializer.read_bytes()
+
+
 def test_airflow_database_connections_use_configured_postgres_user() -> None:
     compose = COMPOSE_PATH.read_text(encoding="utf-8")
     assert (
