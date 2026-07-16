@@ -1,0 +1,35 @@
+{
+  "rows_per_file": 10,
+  "files": {
+    "01_all_invalid.csv": {
+      "expected_criticality": "high",
+      "expected_good_rows": 0,
+      "expected_bad_rows": 10,
+      "expected_alert": true
+    },
+    "02_clean.csv": {
+      "expected_criticality": "none",
+      "expected_good_rows": 10,
+      "expected_bad_rows": 0,
+      "expected_alert": false
+    },
+    "03_clean.csv": {
+      "expected_criticality": "none",
+      "expected_good_rows": 10,
+      "expected_bad_rows": 0,
+      "expected_alert": false
+    },
+    "04_clean.csv": {
+      "expected_criticality": "none",
+      "expected_good_rows": 10,
+      "expected_bad_rows": 0,
+      "expected_alert": false
+    },
+    "05_mixed.csv": {
+      "expected_criticality": "medium",
+      "expected_good_rows": 7,
+      "expected_bad_rows": 3,
+      "expected_alert": true
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "model_type": "HistGradientBoostingRegressor",
+  "rows": 17379,
+  "features": [
+    "season",
+    "yr",
+    "mnth",
+    "hr",
+    "holiday",
+    "weekday",
+    "workingday",
+    "weathersit",
+    "temp",
+    "atemp",
+    "hum",
+    "windspeed"
+  ],
+  "target": "cnt",
+  "split": "chronological",
+  "mae": 47.67164870977133,
+  "rmse": 72.85259090592723,
+  "r2": 0.8908226306647533
+}
