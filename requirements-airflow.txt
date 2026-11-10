@@ -2,3 +2,5 @@ pandas==2.3.3
 great-expectations==1.8.1
 requests==2.32.5
 apache-airflow-providers-postgres
+scikit-learn==1.6.1
+mlflow-skinny==3.1.4

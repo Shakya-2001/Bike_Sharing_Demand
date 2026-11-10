@@ -22,6 +22,7 @@ x-airflow-common: &airflow-common
     PREDICTION_STATE_FILE: /opt/airflow/data/prediction_state/processed_files.json
     PREDICTION_API_URL: http://api:8000
     DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    MLFLOW_TRACKING_URI: http://mlflow:5000
   volumes:
     - ./dags:/opt/airflow/dags
     - ./data:/opt/airflow/data
@@ -137,12 +138,13 @@ services:
       - "5000"
       - --backend-store-uri
       - sqlite:////mlflow/mlflow.db
-      - --default-artifact-root
+      - --artifacts-destination
       - /mlflow/artifacts
+      - --serve-artifacts
     volumes:
       - mlflow_data:/mlflow
-    expose:
-      - "5000"
+    ports:
+      - "5001:5000"
 
   grafana:
     image: grafana/grafana:12.1.1
