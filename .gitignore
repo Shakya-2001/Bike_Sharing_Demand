@@ -21,3 +21,7 @@ data/prediction_state/*.json
 models/*.joblib
 
 .bikeshare/
+
+/data/training/
+/data/training_runs/
+/grafana/provisioning/alerting/
