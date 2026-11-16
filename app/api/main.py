@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Optional
 
-import joblib
+from typing import Any, Optional
+import logging
+from threading import Lock
+
+from app.api.model_loader import LoadedModel, load_champion
 import pandas as pd
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -14,10 +16,6 @@ from sqlalchemy.orm import Session
 
 from app.database.models import Base, Prediction
 from app.database.session import engine, get_db
-
-
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-MODEL_PATH = PROJECT_ROOT / "models" / "bike_demand_model.pkl"
 
 FEATURE_COLUMNS = [
     "season",
@@ -33,9 +31,9 @@ FEATURE_COLUMNS = [
     "hum",
     "windspeed",
 ]
-MODEL_NAME = "bike_demand_hist_gradient_boosting_v1"
-
-model: Any | None = None
+logger = logging.getLogger(__name__)
+active_model: LoadedModel | None = None
+reload_lock = Lock()
 
 
 class BikeDemandFeatures(BaseModel):
@@ -65,6 +63,7 @@ class PredictionItem(BaseModel):
 
 class PredictionResponse(BaseModel):
     model_name: str
+    model_version: str
     predictions: list[PredictionItem]
 
 
@@ -73,10 +72,16 @@ class PastPredictionItem(BaseModel):
     prediction: float
     source: str
     model_name: str
+    model_version: str | None = None
     features: dict[str, Any]
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ReloadModelResponse(BaseModel):
+    model_name: str
+    model_version: str
 
 
 class PastPredictionsResponse(BaseModel):
@@ -85,13 +90,10 @@ class PastPredictionsResponse(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global model
-    if not MODEL_PATH.exists():
-        raise RuntimeError(f"Model file not found at {MODEL_PATH}")
-    model = joblib.load(MODEL_PATH)
+    global active_model
     Base.metadata.create_all(bind=engine)
+    active_model = load_champion()
     yield
-
 
 app = FastAPI(
     title="Bike Sharing Demand API",
@@ -108,12 +110,35 @@ def health() -> dict[str, str]:
     return {"status": "healthy"}
 
 
+@app.post("/reload-model", response_model=ReloadModelResponse)
+def reload_model() -> ReloadModelResponse:
+    global active_model
+
+    with reload_lock:
+        try:
+            candidate = load_champion()
+        except Exception as exc:
+            logger.exception("Champion model reload failed")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Champion reload failed. See API logs for details.",
+            ) from exc
+
+        active_model = candidate
+
+    return ReloadModelResponse(
+        model_name=candidate.name,
+        model_version=candidate.version,
+    )
+
+
 @app.post("/predict", response_model=PredictionResponse)
 def predict(
     request: PredictionRequest,
     db: Session = Depends(get_db),
 ) -> PredictionResponse:
-    if model is None:
+    current_model = active_model
+    if current_model is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Model is not loaded",
@@ -123,7 +148,7 @@ def predict(
     data = pd.DataFrame(rows, columns=FEATURE_COLUMNS)
 
     try:
-        raw_predictions = model.predict(data)
+        raw_predictions = current_model.model.predict(data)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -140,7 +165,8 @@ def predict(
             Prediction(
                 prediction=prediction_value,
                 source=request.source,
-                model_name=MODEL_NAME,
+                model_name=current_model.name,
+                model_version=current_model.version,
                 features=features.model_dump(),
             )
         )
@@ -148,7 +174,8 @@ def predict(
     db.commit()
 
     return PredictionResponse(
-        model_name=MODEL_NAME,
+        model_name=current_model.name,
+        model_version=current_model.version,
         predictions=predictions,
     )
 
