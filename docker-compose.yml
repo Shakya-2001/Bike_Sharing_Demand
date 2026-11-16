@@ -137,12 +137,13 @@ services:
       - "5000"
       - --backend-store-uri
       - sqlite:////mlflow/mlflow.db
-      - --default-artifact-root
+      - --serve-artifacts
+      - --artifacts-destination
       - /mlflow/artifacts
     volumes:
       - mlflow_data:/mlflow
-    expose:
-      - "5000"
+    ports:
+      - "127.0.0.1:5000:5000"
 
   grafana:
     image: grafana/grafana:12.1.1
