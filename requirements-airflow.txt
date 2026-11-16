@@ -2,6 +2,3 @@ pandas==2.3.3
 great-expectations==1.8.1
 requests==2.32.5
 apache-airflow-providers-postgres
-mlflow==3.1.4
-scikit-learn==1.6.1
-joblib==1.5.3

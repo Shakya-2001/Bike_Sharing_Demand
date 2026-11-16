@@ -12,4 +12,3 @@ COPY requirements-airflow.txt /tmp/requirements-airflow.txt
 RUN pip install --no-cache-dir -r /tmp/requirements-airflow.txt
 
 COPY app ./app
-COPY scripts ./scripts
