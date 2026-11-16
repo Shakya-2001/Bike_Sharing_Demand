@@ -26,6 +26,10 @@ class Prediction(Base):
     prediction: Mapped[float] = mapped_column(Float, nullable=False)
     source: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     model_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    model_version: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
     features: Mapped[dict] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

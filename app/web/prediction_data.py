@@ -104,6 +104,7 @@ def history_frame(rows: list[dict[str, Any]]) -> pd.DataFrame:
                 "prediction": item.get("prediction"),
                 "source": item.get("source"),
                 "model_name": item.get("model_name"),
+                "model_version": item.get("model_version") or "Not recorded",
                 "created_at": item.get("created_at"),
             }
         )
@@ -114,6 +115,7 @@ def history_frame(rows: list[dict[str, Any]]) -> pd.DataFrame:
             "created_at",
             "source",
             "model_name",
+            "model_version",
             *FEATURE_COLUMNS,
             "prediction",
         ],
