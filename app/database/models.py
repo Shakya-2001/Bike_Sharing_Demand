@@ -2,15 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import (
-    Boolean,
-    DateTime,
-    Float,
-    Integer,
-    String,
-    UniqueConstraint,
-    text,
-)
+from sqlalchemy import Boolean, DateTime, Float, Integer, String, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import JSON
 
@@ -68,51 +60,4 @@ class IngestionStat(Base):
         server_default=text("NOW()"),
         nullable=False,
         index=True,
-    )
-
-
-class TrainingStat(Base):
-    __tablename__ = "training_stats"
-    __table_args__ = (
-        UniqueConstraint(
-            "model_name",
-            "model_version",
-            name="uq_training_stats_model_version",
-        ),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    model_name: Mapped[str] = mapped_column(
-        String(128),
-        nullable=False,
-    )
-    model_version: Mapped[str] = mapped_column(
-        String(64),
-        nullable=False,
-    )
-    mlflow_run_id: Mapped[str] = mapped_column(
-        String(64),
-        nullable=False,
-    )
-    training_rows: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-    )
-    numerical_stats: Mapped[dict] = mapped_column(
-        JSON,
-        nullable=False,
-    )
-    categorical_stats: Mapped[dict] = mapped_column(
-        JSON,
-        nullable=False,
-    )
-    promoted_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True),
-        nullable=True,
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        server_default=text("NOW()"),
-        nullable=False,
     )
