@@ -5,6 +5,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import pandas as pd
 import requests
@@ -206,7 +207,10 @@ def build_alert_message(validation_result: dict[str, Any]) -> dict:
     if validation_result.get("status") != "validated":
         return {
             "status": "skipped",
-            "reason": validation_result.get("reason", "No validation result"),
+            "reason": validation_result.get(
+                "reason",
+                "No validation result",
+            ),
         }
 
     summary = validation_result["summary"]
@@ -218,6 +222,23 @@ def build_alert_message(validation_result: dict[str, Any]) -> dict:
             "criticality": criticality,
         }
 
+    report_path = summary.get("gx_report_path")
+    report = report_path or "not available"
+
+    if report_path:
+        normalized_path = report_path.replace("\\", "/")
+        marker = "/local_site/"
+        if marker in normalized_path:
+            relative_path = normalized_path.split(marker, 1)[1]
+            base_url = os.getenv(
+                "DATA_DOCS_BASE_URL",
+                "http://127.0.0.1:8081",
+            ).rstrip("/")
+            report_url = (
+                f"{base_url}/{quote(relative_path, safe='/')}"
+            )
+            report = f"[Open validation report]({report_url})"
+
     return {
         "status": "alert_ready",
         "criticality": criticality,
@@ -226,10 +247,10 @@ def build_alert_message(validation_result: dict[str, Any]) -> dict:
             f"{Path(summary['file_path']).name}: "
             f"{summary['invalid_rows']} invalid rows "
             f"({summary['invalid_percent']}%). "
-            f"Report: {summary.get('gx_report_path') or 'not available'}."
+            f"Report: {report}"
         ),
         "error_counts": summary["error_counts"],
-        "report_path": summary.get("gx_report_path"),
+        "report_path": report_path,
     }
 
 
