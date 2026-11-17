@@ -1,325 +1,257 @@
 # Hourly Bike Sharing Demand Prediction
 
-This EPITA Data Science in Production project predicts hourly bike-rental
-demand and demonstrates a complete Defense 1 data pipeline and serving
-workflow.
+This EPITA Data Science in Production project predicts hourly bicycle rentals
+from calendar and weather features. It validates incoming CSVs, serves and
+records predictions, retrains the model in Airflow, and monitors data quality
+and model drift in Grafana.
 
-## Defense 1 Components
-
-- HistGradientBoosting regression model loaded from a local file
-- FastAPI service for single and batch predictions
-- PostgreSQL storage for predictions and ingestion statistics
-- Streamlit multipage application for predictions and prediction history
-- Great Expectations validation, Checkpoint, and Data Docs
-- Airflow 3 ingestion DAG scheduled every minute
-- Airflow 3 prediction DAG scheduled every two minutes
-- Teams notifications for medium- and high-criticality data problems
-- Docker Compose orchestration
-- GitHub Actions with separate Flake8 and pytest steps
-
-## Dataset and Model
-
-The project uses the
-[UCI Bike Sharing Dataset](https://archive.ics.uci.edu/dataset/275/bike+sharing+dataset)
-and its `hour.csv` file. The target is `cnt`, the hourly number of bike
-rentals. The model uses a chronological 80/20 train/test split to avoid
-evaluating earlier observations with knowledge of later observations.
+The model uses the [UCI Bike Sharing Dataset](https://archive.ics.uci.edu/dataset/275/bike+sharing+dataset).
+Its target is `cnt`. The chronological 80/20 split reserves the final 20% for
+evaluation. The labeled demo batches replay observations from the training
+portion.
 
 ## Architecture
 
-The Streamlit application and scheduled prediction DAG send feature data to
-FastAPI. FastAPI loads the model once at startup, makes predictions, and saves
-the predictions and their features through SQLAlchemy. The ingestion DAG reads
-one file from `data/raw_data`, validates it with Great Expectations, saves
-summary statistics with Airflow's PostgresHook, sends alerts when required,
-and routes rows to `good_data` or `bad_data`. The prediction DAG sends all new
-good rows to FastAPI in one batch request.
+1. Airflow reads CSVs from `data/raw_data`. Great Expectations validates each
+   batch, PostgreSQL stores the results, and nginx serves the generated reports.
+2. Streamlit and the prediction DAG call FastAPI. FastAPI serves the MLflow
+   champion and records inputs, predictions, and the model version in PostgreSQL.
+3. The training DAG trains and evaluates a candidate on labeled data. When the
+   candidate passes, Airflow updates the champion alias, reloads FastAPI, and
+   archives the processed batches.
+4. Grafana queries ingestion statistics, prediction history, and training
+   baselines in PostgreSQL. Teams receives ingestion, rejection, and Grafana
+   alerts in their respective channels.
 
-## Prerequisites
+## Start a fresh installation
 
-- Git
-- Docker Desktop with Docker Compose v2
-- Python 3.12 for dataset and test scripts
-- A Microsoft Teams workflow webhook for alert delivery
+Use Git and Docker Desktop with Docker Compose v2. Run these PowerShell commands
+from the project root. For the final defense, check out the released `main`
+branch.
 
-Confirm the required versions:
-
-```bash
-docker --version
-docker compose version
-python3.12 --version
+```powershell
+if (!(Test-Path .env)) {
+    Copy-Item .env.docker.example .env
+}
 ```
 
-## Clone and Configure
+Set local PostgreSQL and Grafana passwords in `.env`. Use the same PostgreSQL
+password in `POSTGRES_PASSWORD` and `DATABASE_URL`. Set
+`AIRFLOW_API_SECRET_KEY` and `AIRFLOW_JWT_SECRET` to long random values shared
+by the Airflow services. Use `TEAMS_WEBHOOK_URL` for **Data Quality Alerts**
+and add `TEAMS_ML_WEBHOOK_URL` for **ML Alerts**. Keep `.env` private.
 
-```bash
-git clone https://github.com/fatehcherrad/dsp-bike-sharing-demand.git
-cd dsp-bike-sharing-demand
-cp .env.docker.example .env
+| Setting | Default or purpose |
+| --- | --- |
+| `MLFLOW_TRACKING_URI` | `http://mlflow:5000` inside Compose |
+| `MLFLOW_MODEL_NAME` | `BikeDemand` |
+| `TRAINING_MIN_NEW_ROWS` | 100 new labeled rows per training attempt |
+| `TRAINING_MAX_INFERENCE_MS_PER_ROW` | 10 ms per row |
+| `TRAINING_SCHEDULE` | `*/10 * * * *` |
+| `DATA_DOCS_BASE_URL` | `http://127.0.0.1:8081` for Teams report links |
+
+Start PostgreSQL and MLflow first. FastAPI loads the registered champion at
+startup, so register the original model before starting the API.
+
+```powershell
+docker compose config --quiet
+docker compose up -d postgres mlflow
 ```
 
-The final defense must run from the default `main` branch. Team members testing
-work before the final release should explicitly switch to `develop`.
+Wait for MLflow at http://127.0.0.1:5000, then prepare the data and register
+the original model:
 
-Edit `.env` and replace both `change-me` values with local passwords. Keep the
-password in `DATABASE_URL` identical to `POSTGRES_PASSWORD`. Add the Teams
-workflow URL locally:
-
-```env
-POSTGRES_PASSWORD=your-local-postgres-password
-DATABASE_URL=postgresql://dsp:your-local-postgres-password@postgres:5432/dsp
-AIRFLOW_API_SECRET_KEY=your-long-random-airflow-api-secret
-AIRFLOW_JWT_SECRET=your-long-random-airflow-jwt-secret
-GRAFANA_ADMIN_PASSWORD=your-local-grafana-password
-TEAMS_WEBHOOK_URL=https://your-private-teams-workflow-url
+```powershell
+docker compose build api
+docker compose run --rm --no-deps -v "${PWD}:/workspace" -w /workspace api python -m scripts.download_dataset
+docker compose run --rm --no-deps -v "${PWD}:/workspace" -w /workspace api python -m scripts.prepare_training_data --number-of-files 30
+docker compose run --rm --no-deps -v "${PWD}:/workspace:ro" -w /workspace api python -m scripts.register_baseline
 ```
 
-The two Airflow secrets must be shared by every Airflow container. Without
-them, Airflow 3 rejects task-execution tokens and DAG tasks fail before their
-Python functions start.
+The registration script checks that the downloaded model produces the original predictions and
+assigns the `champion` alias. Data preparation creates the historical training
+set, 30 ten-row labeled batches, and the held-out test set. Run data preparation
+once per training directory.
 
-Never commit `.env` or the real webhook URL.
+If upgrading an existing Defense 1 database, add the version column before
+starting the updated API. This command uses the example database and user
+names.
 
-## Start the Complete Application
+```powershell
+docker compose exec postgres psql -U dsp -d dsp -c "ALTER TABLE predictions ADD COLUMN IF NOT EXISTS model_version VARCHAR(64);"
+```
 
-Make sure Docker Desktop is running, then execute:
+For **fresh Grafana volumes** with both webhook URLs configured, install the
+exported alert rules and contact points before starting Grafana.
 
-```bash
+```powershell
+New-Item -ItemType Directory -Force .\grafana\provisioning\alerting | Out-Null
+Copy-Item -Path .\grafana\alerting\*.yml -Destination .\grafana\provisioning\alerting
+```
+
+Grafana loads both dashboard JSON files through the dashboard provider. If
+your existing Grafana volume already has the rules and contact points created
+in the UI, continue using those. Provisioning on top of those records can
+conflict with their IDs.
+
+```powershell
 docker compose up -d --build
-docker compose ps
+docker compose ps -a
 ```
 
-Wait until PostgreSQL, FastAPI, Streamlit, and the Airflow API server report
-healthy. The first build can take several minutes.
+Once the API is healthy, initialize the training statistics for the original
+champion and give Airflow write access to its training directories.
 
-## Service URLs
+```powershell
+docker compose run --rm --no-deps -v "${PWD}:/workspace:ro" -w /workspace api python -m scripts.initialize_training_baseline
+docker compose exec --user root airflow-scheduler sh -c 'mkdir -p /opt/airflow/data/training_runs && chown -R airflow:root /opt/airflow/data/training /opt/airflow/data/training_runs'
+```
+
+Expect 13,903 original champion training rows. This initializer is for the
+original baseline model. The training DAG saves statistics for subsequent
+versions.
+
+## Local service URLs
 
 | Service | URL | Login |
 | --- | --- | --- |
 | Streamlit | http://127.0.0.1:8501 | None |
 | FastAPI docs | http://127.0.0.1:8000/docs | None |
-| Airflow 3 | http://127.0.0.1:8080 | User: `admin` |
+| Airflow | http://127.0.0.1:8080 | `admin` |
 | Data Docs | http://127.0.0.1:8081 | None |
-| Grafana | http://127.0.0.1:3000 | Values from `.env` |
+| Grafana | http://127.0.0.1:3000 | Grafana credentials in `.env` |
+| MLflow | http://127.0.0.1:5000 | None |
 
-Airflow's Simple Auth Manager generates the administrator password at startup.
-Read it with:
-
-```bash
-docker compose exec airflow-api-server \
-  cat /opt/airflow/simple_auth_manager_passwords.json.generated
-```
-
-MLflow is containerized for the complete project architecture but is not used
-for Defense 1 model serving and is not exposed on a host port.
-
-On completely new Docker volumes, Data Docs can return HTTP 403 until the
-first ingestion run generates a Great Expectations report. Open it after that
-run; the report directory is intentionally empty before validation.
-
-## Local Python Environment
-
-The Docker application does not require a host Python environment. Create one
-when running dataset scripts or tests locally:
-
-```bash
-python3.12 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-```
-
-On Windows PowerShell, activate it with:
+Read Airflow's generated administrator password from the container.
 
 ```powershell
-.venv\Scripts\Activate.ps1
+docker compose exec airflow-api-server cat /opt/airflow/simple_auth_manager_passwords.json.generated
 ```
 
-## Dataset Scripts
+Data Docs can return HTTP 403 until the first validation report is generated.
+The default Teams report URLs use localhost and open from the demo computer.
 
-Download and extract the UCI dataset:
+## Airflow and model lifecycle
 
-```bash
+| DAG | Default schedule | Behavior |
+| --- | --- | --- |
+| `bike_data_ingestion` | Every minute | Validates one raw file, stores statistics, routes good and bad rows, and alerts Teams for medium and high criticality. |
+| `bike_demand_prediction` | Every two minutes | Sends new good files to FastAPI as one batch. Tracks processed files. |
+| `bike_demand_training` | Every ten minutes | Requires 100 new labeled rows, trains and evaluates a candidate, and branches on the promotion decision. |
+
+Enable the DAGs in Airflow when their inputs are ready. FastAPI records the
+served model version with each prediction. The training DAG snapshots its
+inputs and compares the candidate and champion on the same held-out set.
+Promotion requires RMSE less than or equal to the champion's and mean inference
+time below the configured limit. The default limit is 10 ms per row.
+
+On promotion, Airflow updates the MLflow `champion` alias, reloads the API, and
+archives the exact batches after scheduled predictions have processed them.
+On rejection, the DAG logs the comparison in MLflow and alerts **ML Alerts**.
+When no new files or too few new labels are available, Airflow marks the
+affected tasks skipped and displays the overall run as success.
+
+## Defense walkthrough
+
+Create the input directory if it is missing.
+
+```powershell
+New-Item -ItemType Directory -Force .\data\raw_data | Out-Null
+```
+
+1. Make one single and one batch prediction in Streamlit. Check **Past
+   Predictions** for the model version and the stored results.
+2. Queue `01_all_invalid.csv` from `demo_data/defense1` in `data/raw_data`.
+   Show the ingestion run, the 10 rejected rows in `bad_data`, and the
+   Teams alert. Open the linked Great Expectations report.
+3. Queue `05_mixed.csv` and show 7 valid rows and 3 invalid rows. The three
+   clean demo files each produce 10 valid rows. Show the scheduled results.
+4. Run scheduled prediction again without a new file and show the skipped
+   tasks.
+5. Show the training DAG's promotion, reload, and archive tasks. The verified
+   replay started with version 1 and used 130 labeled rows from batches
+   `001, 004, 005, 007, 008, 011, 017, 018, 020, 027, 028, 029, 030`. Use the
+   corresponding files in `data/training/incoming_batches` for a fresh replay.
+   Keep the training DAG paused while ingesting those batches and completing
+   scheduled prediction. Then enable training and inspect the successful run,
+   MLflow's evaluation metrics, and the new `champion` alias.
+6. Show a rejected candidate's comparison and Teams message. Show the
+   insufficient-data run and its skip reason.
+7. Open **Bike Sharing Data Quality** and **Bike Sharing Drift and
+   Predictions** in Grafana. Use a time range that includes the test data.
+   Show the invalid-rate and missing-column alerts in **Data Quality
+   Alerts** and the temperature and weather drift alerts in **ML Alerts**.
+
+## Monitoring
+
+**Bike Sharing Data Quality** shows the invalid-row rate, validation errors by
+category, valid and invalid row counts, and failed Great Expectations checks.
+**Bike Sharing Drift and Predictions** shows temperature drift, weather
+distribution drift, median predicted demand, and the P90–P10 prediction spread.
+The drift queries match predictions to the training statistics for the model
+version that served them.
+
+| Alert | Condition over the last 10 minutes | Teams channel |
+| --- | --- | --- |
+| High invalid-row rate | A batch exceeds 50% invalid rows | Data Quality Alerts |
+| Missing required columns | A batch has a missing required column | Data Quality Alerts |
+| High temperature drift | Serving mean differs from training mean by more than 0.15 on the normalized scale | ML Alerts |
+| High weather distribution drift | Weather distribution distance exceeds 40% | ML Alerts |
+
+Grafana evaluates the rules once per minute. Both drift rules require at least
+10 predictions for a model version in the evaluation window.
+
+## Dataset tools
+
+With Python 3.12 and the packages from `requirements.txt`, run these from the
+project root:
+
+```powershell
 python -m scripts.download_dataset
-```
-
-Create 30 ingestion files with exactly 10 rows each:
-
-```bash
 python -m scripts.split_dataset data/raw/hour.csv data/raw_data 30
-```
-
-Create a reproducible corrupted file:
-
-```bash
-python -m scripts.generate_data_errors \
-  data/raw_data/batch_001.csv \
-  data/raw_data/corrupted_batch.csv \
-  --null-probability 0.2 \
-  --range-probability 0.2 \
-  --category-probability 0.2 \
-  --type-probability 0.2 \
-  --duplicate-probability 0.2 \
-  --inconsistency-probability 0.2 \
-  --outlier-probability 0.2 \
-  --schema-probability 0 \
-  --seed 42
-```
-
-Use `--drop-column` to force a high-criticality missing-column scenario.
-
-## Defense Demo Files
-
-Five prepared files are stored in `demo_data/defense1`. Every CSV contains
-exactly 10 rows. Regenerate them from `hour.csv` with:
-
-```bash
+python -m scripts.generate_data_errors --help
 python -m scripts.prepare_defense_demo
 ```
 
-Keep the files outside `data/raw_data` until their demo step. Copy only one
-file at a time:
+The splitter produces ten-row CSVs. The error generator accepts configurable
+probabilities and a seed. Use `--drop-column` to demonstrate schema failure.
+Keep the prepared demo files outside `raw_data` until their demo step.
 
-```bash
-cp demo_data/defense1/01_all_invalid.csv data/raw_data/
-```
+## Tests and release
 
-The expected outcomes are recorded in
-`demo_data/defense1/manifest.json`:
-
-- `01_all_invalid.csv`: high criticality, 10 bad rows, Teams alert
-- `02_clean.csv`: 10 good rows, no alert
-- `03_clean.csv`: 10 good rows, no alert
-- `04_clean.csv`: 10 good rows, no alert
-- `05_mixed.csv`: medium criticality, 7 good and 3 bad rows, Teams alert
-
-## Airflow DAGs
-
-The DAGs are paused after a fresh installation. Unpause them in the Airflow UI
-or run:
-
-```bash
-docker compose exec airflow-scheduler \
-  airflow dags unpause bike_data_ingestion
-docker compose exec airflow-scheduler \
-  airflow dags unpause bike_demand_prediction
-```
-
-The ingestion DAG runs every minute and contains:
-
-1. `read_data`
-2. `validate_data`
-3. `save_statistics`
-4. `send_alerts`
-5. `split_and_save_data`
-
-The last three tasks run in parallel after validation. Teams notifications are
-sent only for medium or high criticality.
-
-The prediction DAG runs every two minutes and contains:
-
-1. `check_for_new_data`
-2. `make_predictions`
-
-It combines all new good-data rows into one FastAPI batch request. It does not
-move or delete files from `good_data`.
-
-## Defense 1 Demonstration Order
-
-1. Show all Docker containers running with `docker compose ps`.
-2. Make a single prediction in Streamlit.
-3. Upload a feature-only CSV for a batch prediction.
-4. Show both records on the Past Predictions page.
-5. Copy `01_all_invalid.csv` into `raw_data` and trigger ingestion.
-6. Show high criticality, the Teams alert, database statistics, rendered Data
-   Docs, and all rows in `bad_data`.
-7. Copy `05_mixed.csv` and show the seven/three good/bad split.
-8. Copy the three clean files and run ingestion for each one.
-9. Trigger the prediction DAG and show scheduled predictions in Streamlit.
-10. Trigger it again without new files and show that no data is reprocessed.
-
-Data Docs are generated by Great Expectations, not handwritten HTML. Open the
-report through http://127.0.0.1:8081 after an ingestion run.
-
-## Tests and Continuous Integration
-
-Run the same checks used by GitHub Actions:
-
-```bash
-python -m flake8 .
-python -m pytest -q
+```powershell
 docker compose config --quiet
+docker compose run --rm --no-deps -v "${PWD}:/verification:ro" -w /tmp api sh -c 'cp -a /verification /tmp/project && cd /tmp/project && unset API_BASE_URL DATABASE_URL && python -m flake8 . && python -m pytest -q -p no:cacheprovider'
 ```
 
-GitHub Actions runs linting and tests as separate steps for pull requests into
-`develop`.
+GitHub Actions runs lint and tests in separate steps. Open feature PRs into
+`develop`. The release workflow creates a versioned GitHub Release with
+generated notes when a same-repository PR from `develop` is merged into
+`main`. It starts with `v1.0.0` and increments the patch version on subsequent
+releases.
 
-## Git Workflow
+Local validation passed all 65 tests and Flake8. The first GitHub Release run
+is pending verification after the workflow is merged into `main`.
 
-- `main`: stable defense releases only
-- `develop`: integrated and tested development code
-- `feature/*`: one feature created from the latest `develop`
+## Troubleshooting and shutdown
 
-Do not commit directly to `main` or `develop`. Open a pull request into
-`develop`, wait for CI, squash-merge, and delete the completed feature branch.
-Create the `develop` to `main` pull request only after the final defense
-rehearsal.
-
-## Stop or Reset
-
-Stop containers while preserving database and service volumes:
-
-```bash
-docker compose down
+```powershell
+docker compose ps -a
+docker compose logs --tail=60 api airflow-scheduler grafana
+docker compose exec airflow-scheduler airflow dags list-import-errors
+Invoke-RestMethod http://127.0.0.1:8000/health
 ```
 
-Completely reset all containers and named volumes:
+`airflow-init` exits with code 0 after initializing the metadata database.
+Check the failing task's execution log in Airflow if a DAG run fails.
+Use `docker compose stop` to stop the services and preserve their data.
 
-```bash
-docker compose down -v --remove-orphans
-```
+## Defense 1 contributors
 
-The reset command deletes PostgreSQL, Airflow, Grafana, and MLflow state. Use it
-only when a clean environment is intended. If PostgreSQL credentials change,
-perform a volume reset before restarting.
-
-## Troubleshooting
-
-Check service status and logs:
-
-```bash
-docker compose ps
-docker compose logs --tail=100 api
-docker compose logs --tail=100 airflow-api-server
-docker compose logs --tail=100 airflow-scheduler
-```
-
-Confirm FastAPI readiness:
-
-```bash
-curl http://127.0.0.1:8000/health
-```
-
-List loaded DAGs:
-
-```bash
-docker compose exec airflow-scheduler airflow dags list
-```
-
-If a port is already occupied, stop the application using that port before
-starting this Compose project. If a container was built before a code change,
-run `docker compose up -d --build` again.
-
-## Team Responsibilities
-
-- Fateh Cherrad: data splitting, corruption, validation, ingestion lifecycle,
-  statistics, Teams alerts, and Data Docs
-- Yassine: baseline model, chronological model evaluation, Docker Compose, and
-  Airflow infrastructure
-- Ashish: FastAPI, SQLAlchemy, PostgreSQL, prediction storage, and prediction
-  DAG integration
-- Akash: Streamlit single and batch prediction workflows and prediction
-  history
-
-Every team member must be able to explain Docker and Airflow during the
-defense.
+- Fateh Cherrad implemented data preparation, ingestion, validation, statistics,
+  alerts, and Data Docs.
+- Yassine implemented the original model, evaluation, Docker Compose, and
+  Airflow infrastructure.
+- Ashish implemented FastAPI, PostgreSQL prediction storage, and scheduled
+  prediction integration.
+- Akash implemented the Streamlit prediction and history pages.

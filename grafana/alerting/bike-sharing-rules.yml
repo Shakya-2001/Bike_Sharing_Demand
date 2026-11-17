@@ -1,0 +1,331 @@
+apiVersion: 1
+groups:
+    - orgId: 1
+      name: Bike Sharing 1m
+      folder: Bike Sharing Monitoring
+      interval: 1m
+      rules:
+        - uid: fg3zy2z6dvbb4e
+          title: High invalid-row rate
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: bike-postgres
+              model:
+                editorMode: code
+                format: time_series
+                intervalMs: 1000
+                maxDataPoints: 43200
+                rawQuery: true
+                rawSql: "SELECT\r\n    now() AS \"time\",\r\n    COALESCE(MAX(invalid_percent), 0)::double precision AS value\r\nFROM ingestion_stats\r\nWHERE created_at >= now() - INTERVAL '10 minutes';"
+                refId: A
+                sql:
+                    columns:
+                        - parameters: []
+                          type: function
+                    groupBy:
+                        - property:
+                            type: string
+                          type: groupBy
+                    limit: 50
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params: []
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                            - B
+                      reducer:
+                        params: []
+                        type: last
+                      type: query
+                datasource:
+                    type: __expr__
+                    uid: __expr__
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 50
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                            - C
+                      reducer:
+                        params: []
+                        type: last
+                      type: query
+                datasource:
+                    type: __expr__
+                    uid: __expr__
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: NoData
+          execErrState: Error
+          isPaused: false
+          notification_settings:
+            receiver: Data Quality Alerts
+        - uid: bg3zzcaehroxsb
+          title: Missing required columns
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: bike-postgres
+              model:
+                editorMode: code
+                format: time_series
+                intervalMs: 1000
+                maxDataPoints: 43200
+                rawQuery: true
+                rawSql: "SELECT\r\n    now() AS \"time\",\r\n    COALESCE(MAX(jsonb_array_length(missing_columns::jsonb)), 0)\r\n        AS value\r\nFROM ingestion_stats\r\nWHERE created_at >= now() - INTERVAL '10 minutes';"
+                refId: A
+                sql:
+                    columns:
+                        - parameters: []
+                          type: function
+                    groupBy:
+                        - property:
+                            type: string
+                          type: groupBy
+                    limit: 50
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params: []
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                            - B
+                      reducer:
+                        params: []
+                        type: last
+                      type: query
+                datasource:
+                    type: __expr__
+                    uid: __expr__
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                            - C
+                      reducer:
+                        params: []
+                        type: last
+                      type: query
+                datasource:
+                    type: __expr__
+                    uid: __expr__
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: NoData
+          execErrState: Error
+          isPaused: false
+          notification_settings:
+            receiver: Data Quality Alerts
+        - uid: fg401495lgw74f
+          title: High temperature drift
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: bike-postgres
+              model:
+                editorMode: code
+                format: time_series
+                intervalMs: 1000
+                maxDataPoints: 43200
+                rawQuery: true
+                rawSql: "WITH drift_by_model AS (\r\n    SELECT ABS(\r\n        AVG((p.features->>'temp')::double precision)\r\n        - MAX((s.numerical_stats->'temp'->>'mean')::double precision)\r\n    ) AS drift\r\n    FROM predictions AS p\r\n    JOIN training_stats AS s\r\n        ON s.model_name = p.model_name\r\n        AND s.model_version = p.model_version\r\n        AND s.promoted_at IS NOT NULL\r\n    WHERE p.created_at >= now() - INTERVAL '10 minutes'\r\n    GROUP BY p.model_name, p.model_version\r\n    HAVING COUNT(*) >= 10\r\n)\r\nSELECT now() AS \"time\", COALESCE(MAX(drift), 0) AS value\r\nFROM drift_by_model;"
+                refId: A
+                sql:
+                    columns:
+                        - parameters: []
+                          type: function
+                    groupBy:
+                        - property:
+                            type: string
+                          type: groupBy
+                    limit: 50
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params: []
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                            - B
+                      reducer:
+                        params: []
+                        type: last
+                      type: query
+                datasource:
+                    type: __expr__
+                    uid: __expr__
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0.15
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                            - C
+                      reducer:
+                        params: []
+                        type: last
+                      type: query
+                datasource:
+                    type: __expr__
+                    uid: __expr__
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: NoData
+          execErrState: Error
+          isPaused: false
+          notification_settings:
+            receiver: ML Alerts
+        - uid: eg401vz5815vke
+          title: High weather distribution drift
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: bike-postgres
+              model:
+                editorMode: code
+                format: time_series
+                intervalMs: 1000
+                maxDataPoints: 43200
+                rawQuery: true
+                rawSql: "WITH weather_shares AS (\r\n    SELECT\r\n        p.model_name,\r\n        p.model_version,\r\n        weather.code,\r\n        AVG(\r\n            CASE WHEN p.features->>'weathersit' = weather.code\r\n                 THEN 1.0 ELSE 0.0 END\r\n        ) AS serving_share,\r\n        COALESCE(\r\n            MAX(\r\n                (s.categorical_stats->'weathersit'->>weather.code)\r\n                ::double precision\r\n            ),\r\n            0\r\n        ) AS training_share\r\n    FROM predictions AS p\r\n    JOIN training_stats AS s\r\n        ON s.model_name = p.model_name\r\n        AND s.model_version = p.model_version\r\n        AND s.promoted_at IS NOT NULL\r\n    CROSS JOIN (VALUES ('1'), ('2'), ('3'), ('4')) AS weather(code)\r\n    WHERE p.created_at >= now() - INTERVAL '10 minutes'\r\n    GROUP BY p.model_name, p.model_version, weather.code\r\n    HAVING COUNT(*) >= 10\r\n),\r\ndrift_by_model AS (\r\n    SELECT 50 * SUM(ABS(serving_share - training_share)) AS drift\r\n    FROM weather_shares\r\n    GROUP BY model_name, model_version\r\n)\r\nSELECT now() AS \"time\", COALESCE(MAX(drift), 0) AS value\r\nFROM drift_by_model;"
+                refId: A
+                sql:
+                    columns:
+                        - parameters: []
+                          type: function
+                    groupBy:
+                        - property:
+                            type: string
+                          type: groupBy
+                    limit: 50
+            - refId: B
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params: []
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                            - B
+                      reducer:
+                        params: []
+                        type: last
+                      type: query
+                datasource:
+                    type: __expr__
+                    uid: __expr__
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                type: reduce
+            - refId: C
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 40
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                            - C
+                      reducer:
+                        params: []
+                        type: last
+                      type: query
+                datasource:
+                    type: __expr__
+                    uid: __expr__
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: NoData
+          execErrState: Error
+          isPaused: false
+          notification_settings:
+            receiver: ML Alerts
